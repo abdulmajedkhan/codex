@@ -162,6 +162,8 @@ use codex_protocol::openai_models::ModelPreset;
 use codex_protocol::openai_models::ModelServiceTier;
 use codex_protocol::openai_models::ModelUpgrade;
 use codex_protocol::openai_models::ReasoningEffortPreset;
+use codex_protocol::permissions::FileSystemSandboxPolicy;
+use codex_protocol::permissions::NetworkSandboxPolicy;
 use codex_protocol::protocol::SubAgentSource;
 use codex_utils_absolute_path::AbsolutePathBuf;
 use codex_utils_path_uri::PathUri;
@@ -396,6 +398,8 @@ pub(crate) struct AppServerSession {
     request_id_namespace: Option<Uuid>,
     next_request_id: i64,
     automatic_name_writes: HashMap<ThreadId, Arc<Semaphore>>,
+    /// Newly forked saved side chats and the names their first direct turn may replace.
+    pub(crate) side_chat_fork_names: HashMap<ThreadId, Option<String>>,
     /// The newest docked replay refresh on this connection.
     pub(crate) pending_side_skills_refresh: Option<Uuid>,
     history_pagination: HashMap<ThreadId, history::ThreadHistoryPagination>,
@@ -430,6 +434,7 @@ pub(crate) struct AutomaticThreadName {
     session: AppServerSession,
     thread_id: ThreadId,
     gate: Arc<Semaphore>,
+    expected_name: Option<String>,
 }
 
 impl AutomaticThreadName {
@@ -440,7 +445,7 @@ impl AutomaticThreadName {
         let Some(Ok(thread)) = cancellation.run_until_cancelled(read).await else {
             return;
         };
-        if thread.name.is_some() {
+        if thread.name != self.expected_name {
             return;
         }
         let Ok(_permit) = self.gate.acquire().await else {
@@ -618,6 +623,7 @@ impl AppServerSession {
             request_id_namespace: None,
             next_request_id: 1,
             automatic_name_writes: HashMap::new(),
+            side_chat_fork_names: HashMap::new(),
             pending_side_skills_refresh: None,
             attachment_subscribed: None,
             history_pagination: HashMap::new(),
@@ -1373,6 +1379,11 @@ impl AppServerSession {
     }
 
     pub(crate) fn observe_sidebar_fork(&mut self, fork: &SidebarFork) {
+        if fork.storage == SideChatStorage::Attached && fork.boundary.is_ok() {
+            let child = &fork.thread.session;
+            self.side_chat_fork_names
+                .insert(child.thread_id, child.thread_name.clone());
+        }
         if fork.legacy {
             self.history_support = ThreadHistorySupport::LegacyOnly;
         }
@@ -1736,6 +1747,7 @@ impl AppServerSession {
             })
             .await
             .wrap_err("failed to delete session")?;
+        self.side_chat_fork_names.remove(&thread_id);
         Ok(())
     }
 
@@ -1953,6 +1965,7 @@ impl AppServerSession {
     pub(crate) fn automatic_thread_name_writer(
         &mut self,
         thread_id: ThreadId,
+        expected_name: Option<String>,
     ) -> AutomaticThreadName {
         self.automatic_name_writes
             .retain(|_, gate| Arc::strong_count(gate) > 1);
@@ -1965,6 +1978,7 @@ impl AppServerSession {
             session,
             thread_id,
             gate: Arc::clone(gate),
+            expected_name,
         }
     }
 
@@ -1990,6 +2004,7 @@ impl AppServerSession {
             })
             .await
             .wrap_err("thread/name/set failed in TUI")?;
+        self.side_chat_fork_names.remove(&thread_id);
         if let Some(gate) = gate.as_ref() {
             gate.close();
             self.automatic_name_writes.remove(&thread_id);
@@ -2590,9 +2605,14 @@ pub(crate) fn permission_profile_is_safely_represented_by_sandbox_mode(
     let projected_profile = match sandbox_mode {
         codex_app_server_protocol::SandboxMode::ReadOnly => PermissionProfile::read_only(),
         codex_app_server_protocol::SandboxMode::WorkspaceWrite => {
-            PermissionProfile::from_legacy_sandbox_policy_for_cwd(
-                &codex_protocol::protocol::SandboxPolicy::new_workspace_write_policy(),
-                cwd,
+            PermissionProfile::from_runtime_permissions(
+                &FileSystemSandboxPolicy::workspace_write(
+                    &[],
+                    /*exclude_tmpdir_env_var*/ false,
+                    /*exclude_slash_tmp*/ false,
+                )
+                .with_workspace_write_cwd(cwd),
+                NetworkSandboxPolicy::Restricted,
             )
         }
         codex_app_server_protocol::SandboxMode::DangerFullAccess => PermissionProfile::Disabled,
@@ -4225,6 +4245,32 @@ mod tests {
 
         assert_eq!(resume.cwd, Some(remote_cwd.to_string_lossy().to_string()));
         assert_eq!(resume.runtime_workspace_roots, None);
+    }
+
+    #[test]
+    fn sandbox_mode_preserves_workspace_metadata_at_the_destination() {
+        let workspace = tempfile::tempdir().expect("workspace");
+        let cwd = workspace.path();
+        std::fs::create_dir(cwd.join(".git")).expect("git metadata");
+        let profile = PermissionProfile::from_legacy_sandbox_policy_for_cwd(
+            &codex_protocol::protocol::SandboxPolicy::new_workspace_write_policy(),
+            cwd,
+        );
+        assert!(permission_profile_is_safely_represented_by_sandbox_mode(
+            &profile, cwd
+        ));
+        let policy = profile
+            .file_system_sandbox_policy()
+            .with_additional_writable_roots(
+                cwd,
+                &[AbsolutePathBuf::from_absolute_path(cwd.join(".git"))
+                    .expect("absolute metadata")],
+            );
+        let profile =
+            PermissionProfile::from_runtime_permissions(&policy, NetworkSandboxPolicy::Restricted);
+        assert!(!permission_profile_is_safely_represented_by_sandbox_mode(
+            &profile, cwd
+        ));
     }
 
     #[test]
