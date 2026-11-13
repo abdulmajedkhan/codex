@@ -865,6 +865,20 @@ describe("Codex", () => {
       await close();
     }
   }, 10000); // TODO(pakrym): remove timeout
+
+  it("throws on unrecoverable stream error events", async () => {
+    const { CodexExec } = await import("../src/exec");
+    const { Thread } = await import("../src/thread");
+    const exec = new CodexExec("codex");
+    jest.spyOn(exec, "run").mockImplementation(async function* () {
+      yield JSON.stringify({ type: "thread.started", thread_id: "thread_123" });
+      yield JSON.stringify({ type: "turn.started" });
+      yield JSON.stringify({ type: "error", message: "fatal server error occurred" });
+    });
+
+    const thread = new Thread(exec, {}, {});
+    await expect(thread.run("hello")).rejects.toThrow("fatal server error occurred");
+  });
 });
 
 /**

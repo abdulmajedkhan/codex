@@ -16,6 +16,7 @@
     "declaration": true,
     "declarationMap": true,
     "noImplicitAny": true,
+    "rootDir": ".",
     "outDir": "dist",
     "stripInternal": true
   },

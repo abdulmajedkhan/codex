@@ -199,6 +199,73 @@ describe("Codex", () => {
       await close();
     }
   });
+
+  it("streams collab_tool_call and advanced thread items", async () => {
+    const { CodexExec } = await import("../src/exec");
+    const { Thread } = await import("../src/thread");
+    const exec = new CodexExec("codex");
+    const collabItem = {
+      id: "collab_item_1",
+      type: "collab_tool_call" as const,
+      tool: "spawn_agent" as const,
+      sender_thread_id: "thread_main",
+      receiver_thread_ids: ["thread_sub_1"],
+      prompt: "explore the codebase",
+      agents_states: {
+        thread_sub_1: {
+          status: "running" as const,
+          message: "started",
+        },
+      },
+      status: "in_progress" as const,
+    };
+    const webSearchItem = {
+      id: "search_item_1",
+      type: "web_search" as const,
+      query: "openai codex docs",
+      action: {
+        type: "search" as const,
+        query: "openai codex docs",
+      },
+      results: [{ url: "https://developers.openai.com/codex" }],
+    };
+    const declinedCommandItem = {
+      id: "cmd_item_1",
+      type: "command_execution" as const,
+      command: "rm -rf /",
+      aggregated_output: "command declined by user",
+      status: "declined" as const,
+    };
+
+    jest.spyOn(exec, "run").mockImplementation(async function* () {
+      yield JSON.stringify({ type: "thread.started", thread_id: "thread_main" });
+      yield JSON.stringify({ type: "item.started", item: collabItem });
+      yield JSON.stringify({ type: "item.completed", item: webSearchItem });
+      yield JSON.stringify({ type: "item.completed", item: declinedCommandItem });
+      yield JSON.stringify({
+        type: "turn.completed",
+        usage: {
+          input_tokens: 10,
+          cached_input_tokens: 0,
+          cache_write_input_tokens: 0,
+          output_tokens: 5,
+          reasoning_output_tokens: 0,
+        },
+      });
+    });
+
+    const thread = new Thread(exec, {}, {});
+    const streamed = await thread.runStreamed("test collab");
+    const events: ThreadEvent[] = [];
+    for await (const event of streamed.events) {
+      events.push(event);
+    }
+
+    expect(events).toHaveLength(5);
+    expect(events[1]).toEqual({ type: "item.started", item: collabItem });
+    expect(events[2]).toEqual({ type: "item.completed", item: webSearchItem });
+    expect(events[3]).toEqual({ type: "item.completed", item: declinedCommandItem });
+  });
 });
 
 async function drainEvents(events: AsyncGenerator<ThreadEvent>): Promise<void> {

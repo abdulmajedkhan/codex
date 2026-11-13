@@ -43,6 +43,8 @@ export type CodexExecArgs = {
   webSearchEnabled?: boolean;
   // --config approval_policy
   approvalPolicy?: ApprovalMode;
+  // --ephemeral
+  ephemeral?: boolean;
 };
 
 const INTERNAL_ORIGINATOR_ENV = "CODEX_INTERNAL_ORIGINATOR_OVERRIDE";
@@ -137,6 +139,10 @@ export class CodexExec {
 
     if (args.skipGitRepoCheck) {
       commandArgs.push("--skip-git-repo-check");
+    }
+
+    if (args.ephemeral) {
+      commandArgs.push("--ephemeral");
     }
 
     if (args.outputSchemaFile) {

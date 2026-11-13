@@ -294,9 +294,14 @@ const childResult = await new Promise((resolve) => {
 
 if (childResult.type === "signal") {
   // Preserve a failure exit code even if Node ignores the re-emitted signal.
-  process.exitCode = 128 + constants.signals[childResult.signal];
-  process.removeAllListeners(childResult.signal);
-  process.kill(process.pid, childResult.signal);
+  const signalNumber = constants.signals[childResult.signal] ?? 1;
+  process.exitCode = 128 + signalNumber;
+  try {
+    process.removeAllListeners(childResult.signal);
+    process.kill(process.pid, childResult.signal);
+  } catch {
+    process.exit(process.exitCode);
+  }
 } else {
   process.exit(childResult.exitCode);
 }

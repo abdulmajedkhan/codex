@@ -27,4 +27,6 @@ export type ThreadOptions = {
   webSearchEnabled?: boolean;
   approvalPolicy?: ApprovalMode;
   additionalDirectories?: string[];
+  /** Run without persisting session files to disk. */
+  ephemeral?: boolean;
 };

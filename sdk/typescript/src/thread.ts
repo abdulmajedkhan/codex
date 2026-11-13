@@ -94,6 +94,7 @@ export class Thread {
       webSearchEnabled: options?.webSearchEnabled,
       approvalPolicy: options?.approvalPolicy,
       additionalDirectories: options?.additionalDirectories,
+      ephemeral: options?.ephemeral,
     });
     try {
       for await (const item of generator) {
@@ -132,6 +133,9 @@ export class Thread {
         usage = event.usage;
       } else if (event.type === "turn.failed") {
         turnFailure = event.error;
+        break;
+      } else if (event.type === "error") {
+        turnFailure = { message: event.message };
         break;
       }
     }

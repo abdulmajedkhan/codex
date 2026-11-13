@@ -3,7 +3,7 @@
 import type { ContentBlock as McpContentBlock } from "@modelcontextprotocol/sdk/types.js";
 
 /** The status of a command execution. */
-export type CommandExecutionStatus = "in_progress" | "completed" | "failed";
+export type CommandExecutionStatus = "in_progress" | "completed" | "failed" | "declined";
 
 /** A command executed by the agent. */
 export type CommandExecutionItem = {
@@ -29,7 +29,7 @@ export type FileUpdateChange = {
 };
 
 /** The status of a file change. */
-export type PatchApplyStatus = "completed" | "failed";
+export type PatchApplyStatus = "in_progress" | "completed" | "failed";
 
 /** A set of file changes by the agent. Emitted once the patch succeeds or fails. */
 export type FileChangeItem = {
@@ -86,11 +86,71 @@ export type ReasoningItem = {
   text: string;
 };
 
+/** Action performed as part of a web search request. */
+export type WebSearchAction =
+  | {
+      type: "search";
+      query?: string;
+      queries?: string[];
+    }
+  | {
+      type: "open_page";
+      url?: string;
+    }
+  | {
+      type: "find_in_page";
+      url?: string;
+      pattern?: string;
+    }
+  | {
+      type: "other";
+    };
+
 /** Captures a web search request. Completes when results are returned to the agent. */
 export type WebSearchItem = {
   id: string;
   type: "web_search";
   query: string;
+  action?: WebSearchAction;
+  /** Structured results returned by web search, when available. */
+  results?: unknown[];
+};
+
+/** Supported collab tools. */
+export type CollabTool = "spawn_agent" | "send_input" | "wait" | "close_agent";
+
+/** The status of a collab tool call. */
+export type CollabToolCallStatus = "in_progress" | "completed" | "failed";
+
+/** The status of a collab agent. */
+export type CollabAgentStatus =
+  | "pending_init"
+  | "running"
+  | "interrupted"
+  | "completed"
+  | "errored"
+  | "shutdown"
+  | "not_found";
+
+/** Last known state of a collab agent. */
+export type CollabAgentState = {
+  status: CollabAgentStatus;
+  message?: string;
+};
+
+/**
+ * Represents a call to a collab tool. The item starts when the collab tool is
+ * invoked and completes when the collab tool reports success or failure.
+ */
+export type CollabToolCallItem = {
+  id: string;
+  type: "collab_tool_call";
+  tool: CollabTool;
+  sender_thread_id: string;
+  receiver_thread_ids: string[];
+  prompt?: string;
+  agents_states: Record<string, CollabAgentState>;
+  status: CollabToolCallStatus;
 };
 
 /** Describes a non-fatal error surfaced as an item. */
@@ -123,6 +183,7 @@ export type ThreadItem =
   | CommandExecutionItem
   | FileChangeItem
   | McpToolCallItem
+  | CollabToolCallItem
   | WebSearchItem
   | TodoListItem
   | ErrorItem;

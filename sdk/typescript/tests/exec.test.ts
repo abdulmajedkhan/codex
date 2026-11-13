@@ -362,4 +362,26 @@ describe("CodexExec", () => {
 
     expect(env).toEqual({ Path: `${pathDir}${path.delimiter}C\\Windows` });
   });
+
+  it("passes --ephemeral flag when ephemeral is enabled", async () => {
+    const { CodexExec } = await import("../src/exec");
+    spawnMock.mockClear();
+    const child = new FakeChildProcess();
+    spawnMock.mockReturnValue(child as unknown as child_process.ChildProcess);
+
+    setImmediate(() => {
+      child.stdout.end();
+      child.stderr.end();
+      child.emit("exit", 0, null);
+    });
+
+    const exec = new CodexExec("codex");
+    for await (const _ of exec.run({ input: "hi", ephemeral: true })) {
+      // no-op
+    }
+
+    const commandArgs = spawnMock.mock.calls[0]?.[1] as string[] | undefined;
+    expect(commandArgs).toBeDefined();
+    expect(commandArgs).toContain("--ephemeral");
+  });
 });
