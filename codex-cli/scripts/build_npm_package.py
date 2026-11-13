@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Stage and optionally package the @openai/codex npm module."""
 
+from __future__ import annotations
+
 import argparse
 import json
 import os

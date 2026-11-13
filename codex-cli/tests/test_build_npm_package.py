@@ -56,7 +56,7 @@ class NpmPackageTest(unittest.TestCase):
                 for name in files:
                     destination = source / name
                     destination.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(executable, destination)
+                    shutil.copy(executable, destination)
                 (source / "codex-package.json").write_text(json.dumps(metadata))
                 original = {
                     path.relative_to(source).as_posix(): path.read_bytes()

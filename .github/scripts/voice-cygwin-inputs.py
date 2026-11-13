@@ -8,6 +8,18 @@ import shutil
 import tarfile
 
 
+def _file_digest(stream, algorithm: str):
+    if hasattr(hashlib, "file_digest"):
+        return hashlib.file_digest(stream, algorithm)
+    hasher = hashlib.new(algorithm)
+    while True:
+        chunk = stream.read(65536)
+        if not chunk:
+            break
+        hasher.update(chunk)
+    return hasher
+
+
 def records(manifest):
     metadata = manifest["metadata"]
     if {item["file"] for item in metadata} != {
@@ -39,7 +51,7 @@ def extract(manifest, archive, destination):
     with archive.open("rb") as stream:
         if (
             archive.stat().st_size != pin["bytes"]
-            or hashlib.file_digest(stream, "sha256").hexdigest() != pin["sha256"]
+            or _file_digest(stream, "sha256").hexdigest() != pin["sha256"]
         ):
             raise ValueError("Cygwin archive digest or size mismatch")
         stream.seek(0)
@@ -55,13 +67,16 @@ def extract(manifest, archive, destination):
                 with bundle.extractfile(member) as source:
                     if (
                         member.size != expected[member.name]["bytes"]
-                        or hashlib.file_digest(source, "sha512").hexdigest()
+                        or _file_digest(source, "sha512").hexdigest()
                         != expected[member.name]["sha512"]
                     ):
                         raise ValueError(f"Cygwin input mismatch: {member.name}")
             destination.mkdir(parents=True)
             try:
-                bundle.extractall(destination, members=members, filter="data")
+                if hasattr(tarfile, "data_filter"):
+                    bundle.extractall(destination, members=members, filter="data")
+                else:
+                    bundle.extractall(destination, members=members)
             except BaseException:
                 shutil.rmtree(destination)
                 raise
