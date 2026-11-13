@@ -54,6 +54,7 @@ use codex_config::types::OAuthCredentialsStoreMode;
 use codex_config::types::QuickDial;
 use codex_config::types::ResumeCwdMode;
 use codex_config::types::SessionPickerViewMode;
+use codex_config::types::StatusLineSelection;
 use codex_config::types::ToolSuggestConfig;
 use codex_config::types::ToolSuggestDisabledTool;
 use codex_config::types::ToolSuggestDiscoverable;
@@ -878,6 +879,9 @@ pub struct Config {
     /// When unset, the TUI defaults to: `model-with-reasoning` and `current-dir`.
     pub tui_status_line: Option<Vec<String>>,
 
+    /// Local choice of built-in status items or an MCP provider.
+    pub tui_status_line_provider: Option<Box<StatusLineSelection>>,
+
     /// Whether to color status line items with colors from the active syntax theme.
     pub tui_status_line_use_colors: bool,
 
@@ -1680,6 +1684,21 @@ async fn config_toml_from_layers(layers: &ConfigLayerStack) -> std::io::Result<C
 }
 
 impl Config {
+    pub(crate) fn thread_persistence_metadata(
+        &self,
+    ) -> codex_thread_store::ThreadPersistenceMetadata {
+        use codex_protocol::protocol::ThreadMemoryMode;
+        codex_thread_store::ThreadPersistenceMetadata {
+            cwd: Some(self.cwd.to_path_buf()),
+            model_provider: self.model_provider_id.clone(),
+            memory_mode: if self.memories.generate_memories {
+                ThreadMemoryMode::Enabled
+            } else {
+                ThreadMemoryMode::Disabled
+            },
+        }
+    }
+
     /// Capture storage and sync preparation use one session-static rollout choice.
     pub(crate) fn guardian_context_budgeting(&self) -> codex_guardian_context::ContextBudgeting {
         if self.guardian_sync_elastic_budget.is_some() {
@@ -4842,6 +4861,7 @@ impl Config {
                 .map(|t| t.alternate_screen)
                 .unwrap_or_default(),
             tui_status_line: cfg.tui.as_ref().and_then(|t| t.status_line.clone()),
+            tui_status_line_provider: cfg.tui.as_ref().and_then(|t| t.status_line_provider.clone()),
             tui_status_line_use_colors: cfg
                 .tui
                 .as_ref()
